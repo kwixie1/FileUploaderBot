@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 bot_token = os.getenv("TOKEN")
 
-client = commands.Bot(command_prefix="fu ", intents=nextcord.Intents.all())
+client = commands.Bot(command_prefix="plink ", intents=nextcord.Intents.all())
 
 @client.event
 async def on_ready():
@@ -43,7 +43,17 @@ async def upload(ctx: commands.Context):
     async with ctx.typing():
         async with aiohttp.ClientSession("https://fu.andcool.ru") as session:
             async with session.post(f"/api/upload/private", data=data) as response:
+                response_status = response.status
                 response = await response.json()
+
+    if response_status != 200:
+        embed = nextcord.Embed(
+            title="Error!", 
+            description=f"Status code: **{response_status}**",
+            color=nextcord.Color.from_rgb(170, 63, 68)
+        )
+        await ctx.reply(embed=embed)
+        return
 
     embed = nextcord.Embed(title="File successfully uploaded!", color=nextcord.Color.from_rgb(155, 181, 82))
     embed.add_field(name="File link", value=response["file_url_full"])
