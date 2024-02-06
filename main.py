@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 bot_token = os.getenv("TOKEN")
 
-client = commands.Bot(command_prefix="fu ", intents=nextcord.Intents.all())
+client = commands.Bot(command_prefix="plink ", intents=nextcord.Intents.all())
 
 @client.event
 async def on_ready():
@@ -33,17 +33,33 @@ async def upload(ctx: commands.Context):
         await ctx.reply("Your file is too large! Max file size limit is 100 MB.")
         return
 
-    if attachment.content_type == None:
-        await ctx.reply("Wait-wait, what is it? Non-extension file? Interesting, but no. Please, find file with any extension")
-        return
-
     data = aiohttp.FormData()
     data.add_field("file", await attachment.read(), filename=attachment.filename)
 
     async with ctx.typing():
         async with aiohttp.ClientSession("https://fu.andcool.ru") as session:
             async with session.post(f"/api/upload/private", data=data) as response:
+                response_status = response.status
                 response = await response.json()
+
+    if response_status != 200:
+        errors = {
+            500: "Internal server error",
+            502: "API didn't respond.",
+            522: "Server didn't respond"
+        }
+        if response_status in errors.keys():
+            embed_title = errors[response_status]
+        else:
+            embed_title = "Unhandled error was occured"
+
+        embed = nextcord.Embed(
+            title=embed_title, 
+            description=f"Status code: **{response_status}**",
+            color=nextcord.Color.from_rgb(170, 63, 68)
+        )
+        await ctx.reply(embed=embed)
+        return
 
     embed = nextcord.Embed(title="File successfully uploaded!", color=nextcord.Color.from_rgb(155, 181, 82))
     embed.add_field(name="File link", value=response["file_url_full"])
