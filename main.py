@@ -33,10 +33,6 @@ async def upload(ctx: commands.Context):
         await ctx.reply("Your file is too large! Max file size limit is 100 MB.")
         return
 
-    if attachment.content_type == None:
-        await ctx.reply("Wait-wait, what is it? Non-extension file? Interesting, but no. Please, find file with any extension")
-        return
-
     data = aiohttp.FormData()
     data.add_field("file", await attachment.read(), filename=attachment.filename)
 
@@ -47,8 +43,18 @@ async def upload(ctx: commands.Context):
                 response = await response.json()
 
     if response_status != 200:
+        errors = {
+            500: "Internal server error",
+            502: "API didn't respond.",
+            522: "Server didn't respond"
+        }
+        if response_status in errors.keys():
+            embed_title = errors[response_status]
+        else:
+            embed_title = "Unhandled error was occured"
+
         embed = nextcord.Embed(
-            title="Error!", 
+            title=embed_title, 
             description=f"Status code: **{response_status}**",
             color=nextcord.Color.from_rgb(170, 63, 68)
         )
