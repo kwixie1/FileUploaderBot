@@ -37,7 +37,7 @@ async def on_interaction(interaction: nextcord.Interaction):
                 key=d_url[1]
             )
         except Exception as e:  # If server answered with error
-            await interaction.send(e)
+            await interaction.send(e, ephemeral=True)
             return
 
         del_embed = nextcord.Embed(
@@ -75,8 +75,18 @@ async def upload(ctx: commands.Context):
     user = None
     if str(ctx.author.id) in data:  # If user logged in
         userdata = data[str(ctx.author.id)]
-        user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with login token
+        try:
+            user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with login token
 
+        except fileuploader.exceptions.NotAuthorized:
+            del data[str(ctx.author.id)]  # Delete user data
+            with open("data.json", "w") as f:
+                json.dump(data, f, indent=4)  # Update the json file
+
+        except Exception as e:
+            await ctx.reply(e)
+            return
+        
     try:
         async with ctx.typing():
             file = await fileuploader.upload(  # Upload file to a server
@@ -85,11 +95,7 @@ async def upload(ctx: commands.Context):
                 user=user
             )
     except Exception as e:  # If server answered with error
-        embed = nextcord.Embed(
-            title=e,
-            color=nextcord.Color.from_rgb(170, 63, 68)
-        )
-        await ctx.reply(embed=embed)
+        await ctx.reply(e)
         return
 
     embed = nextcord.Embed(title="File successfully uploaded!", 
@@ -111,16 +117,12 @@ async def upload(ctx: commands.Context):
     await ctx.reply(embed=embed, view=view)  # Send uploaded file info
 
 
-@client.slash_command()
+@client.slash_command(description="log in the fu account")
 async def login(interaction: nextcord.Interaction, username: str, password: str):
     message = await interaction.send("Wait a second...", ephemeral=True)
 
     with open("data.json", "r") as f:
         data = json.load(f)
-
-    if str(interaction.user.id) in data:  # If user in data
-        await message.edit(f"You are already logged in as `{data[str(interaction.user.id)]['username']}`.")
-        return
 
     try:
         async with interaction.channel.typing():
@@ -128,6 +130,9 @@ async def login(interaction: nextcord.Interaction, username: str, password: str)
     except Exception as e:
         await message.edit(e)
         return
+
+    if str(interaction.user.id) in data:
+        del data[str(interaction.user.id)]
 
     data[str(interaction.user.id)] = {  # Add user data
             "accessToken": user.accessToken,
@@ -139,7 +144,7 @@ async def login(interaction: nextcord.Interaction, username: str, password: str)
     await message.edit(f"You are successfully logged in as `{user.username}`.")
 
     
-@client.slash_command()
+@client.slash_command(description="log out from the fu account")
 async def logout(interaction: nextcord.Interaction):
     message = await interaction.send("Wait a second...", ephemeral=True)
 
@@ -151,32 +156,37 @@ async def logout(interaction: nextcord.Interaction):
         return
 
     userdata = data[str(interaction.user.id)]
-    user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with login token
 
     try:
-        async with interaction.channel.typing():
-            await user.logout()  # Log out from the account
+        user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with login 
+
+    except fileuploader.exceptions.NotAuthorized:
+        user = None
     except Exception as e:
         await message.edit(e)
         return
-    
+
     del data[str(interaction.user.id)]  # Delete user data
     with open("data.json", "w") as f:
         json.dump(data, f, indent=4)  # Update the json file
 
+    if user:
+        try:
+            async with interaction.channel.typing():
+                await user.logout()  # Log out from the account
+        except Exception as e:
+            await message.edit(e)
+            return
+
     await message.edit("You are successfully logged out.")
 
 
-@client.slash_command()
+@client.slash_command(description="register the new fu account")
 async def registration(interaction: nextcord.Interaction, username: str, password: str):
     message = await interaction.send("Wait a second...", ephemeral=True)
     
     with open("data.json", "r") as f:
         data = json.load(f)
-
-    if str(interaction.user.id) in data:  # If user in data
-        await message.edit(f"You are already logged in as {data[str(interaction.user.id)]['username']}.")
-        return
 
     try:
         async with interaction.channel.typing():
@@ -185,6 +195,9 @@ async def registration(interaction: nextcord.Interaction, username: str, passwor
         await message.edit(e)
         return
     
+    if str(interaction.user.id) in data:
+        del data[str(interaction.user.id)]
+
     data[str(interaction.user.id)] = {  # Add user data
             "accessToken": user.accessToken,
             "username": user.username
