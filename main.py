@@ -8,7 +8,7 @@ import json
 
 load_dotenv()
 bot_token = os.getenv("TOKEN")
-client = commands.Bot(command_prefix="fu ", intents=nextcord.Intents.all())
+client = commands.Bot(intents=nextcord.Intents.all())
 
 
 @client.event
@@ -24,6 +24,7 @@ async def on_interaction(interaction: nextcord.Interaction):
     if interaction.type != nextcord.InteractionType.component:  # If interaction type is not component
         return
 
+    await interaction.message.edit(content="Wait a second...")  # Without it Discord can answer with an exception for long waiting
     if interaction.data['custom_id'].startswith("del_"):  # If interacted component is delete button
         d_url = interaction.data['custom_id'].replace("del_", "").split("_")  # Get file and owner info
 
@@ -31,12 +32,14 @@ async def on_interaction(interaction: nextcord.Interaction):
             await interaction.send(content="Hey, this button is not for you!", ephemeral=True)
             return
 
-        try:  
-            await fileuploader.delete(  # Delete file from the server
-                file_url=d_url[0],
-                key=d_url[1]
-            )
+        try:
+            async with interaction.channel.typing():
+                await fileuploader.delete(  # Delete file from the server
+                    file_url=d_url[0],
+                    key=d_url[1]
+                )
         except Exception as e:  # If server answered with error
+            await interaction.message.edit(content=None)
             await interaction.send(e, ephemeral=True)
             return
 
@@ -49,53 +52,62 @@ async def on_interaction(interaction: nextcord.Interaction):
         )
                     
         view = View()
-        await interaction.message.edit(embed=del_embed, view=view)
+        await interaction.message.edit(content=None, embed=del_embed, view=view)
 
 
-@commands.cooldown(rate=2, per=60)  # Command cooldown
-@client.command()
-async def upload(ctx: commands.Context):
-    if not ctx.message.attachments:  # If message hasn't attachments
-        await ctx.reply("If you want to upload a file, you need to SEND me a file.")
-        return
+@client.slash_command(description="Bot and commands info")
+async def help(interaction: nextcord.Interaction):
+    description = """This bot - simple discord provider for fu.andcool.ru
+    Using bot you can:
+    — Upload and delete files to/from the server.
+    — Working with accounts: login, logout or register a new one."""
+    embed = nextcord.Embed(title="File uploader bot", description=description, color=nextcord.Color.from_rgb(155, 181, 82))
+    embed.add_field(
+        name="Commands", 
+        value="**Main**\n`/upload` `/help`\n**Accounts**\n`/login` `/logout` `/registration`"
+    )
+    embed.add_field(name="Credits", value="**Bot creator**\n<@826589820528230450>\n**Fu creator**\n<@812990469482610729>")
+    embed.set_thumbnail("https://fu.andcool.ru/file/OVuFMwonbD")
 
-    if len(ctx.message.attachments) > 1:  # If the message contains more than 1 attachment
-        await ctx.reply("Please, send me only ONE file.")
-        return
+    await interaction.send(embed=embed)
 
-    attachment = ctx.message.attachments[0]  # Get first attachment
+
+@client.slash_command(description="Upload a file to the server")
+async def upload(interaction: nextcord.Interaction, attachment: nextcord.Attachment):
+    message = await interaction.send("Wait a second...")  # Save sended message for next editing
+    # Without it discord can response something like "the application did not respond"
 
     if attachment.size >= 1024 * 1024 * 100:  # Chack attachment size
-        await ctx.reply("Your file is too large! Max file size limit is 100 MB.")
+        await message.edit("Your file is too large! Max file size limit is 100 MB.")
         return
 
     with open("data.json", "r") as f:
         data = json.load(f)  # load data from .json file
 
     user = None
-    if str(ctx.author.id) in data:  # If user logged in
-        userdata = data[str(ctx.author.id)]
+    if str(interaction.user.id) in data:  # If user logged in
+        userdata = data[str(interaction.user.id)]
         try:
             user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with login token
 
-        except fileuploader.exceptions.NotAuthorized:
-            del data[str(ctx.author.id)]  # Delete user data
+        except fileuploader.exceptions.NotAuthorized:  # If access token is invalid
+            del data[str(interaction.user.id)]  # Delete user data
             with open("data.json", "w") as f:
                 json.dump(data, f, indent=4)  # Update the json file
 
         except Exception as e:
-            await ctx.reply(e)
+            await message.edit(e)
             return
         
     try:
-        async with ctx.typing():
-            file = await fileuploader.upload(  # Upload file to a server
+        async with interaction.channel.typing():
+            file = await fileuploader.upload(  # Upload file to the server
                 bytes=await attachment.read(),
                 filename=attachment.filename,
                 user=user
             )
     except Exception as e:  # If server answered with error
-        await ctx.reply(e)
+        await message.edit(e)
         return
 
     embed = nextcord.Embed(title="File successfully uploaded!", 
@@ -109,12 +121,12 @@ async def upload(ctx: commands.Context):
     button = Button(
         label="Delete file",
         style=nextcord.ButtonStyle.red, 
-        custom_id=f'del_{file.file_url}_{file.key}_{ctx.author.id}'  # Store file info in button custom_id
+        custom_id=f'del_{file.file_url}_{file.key}_{interaction.user.id}'  # Store file info in button custom_id
     )
 
     view = View()
     view.add_item(button)
-    await ctx.reply(embed=embed, view=view)  # Send uploaded file info
+    await message.edit(content=None, embed=embed, view=view)  # Send uploaded file info
 
 
 @client.slash_command(description="log in the fu account")
@@ -149,7 +161,7 @@ async def logout(interaction: nextcord.Interaction):
     message = await interaction.send("Wait a second...", ephemeral=True)
 
     with open("data.json", "r") as f:
-        data = json.load(f)  # Load a json file
+        data = json.load(f)  # Load data from .json file
 
     if str(interaction.user.id) not in data:  # If user not in data
         await message.edit("You are already logged out!")
@@ -158,7 +170,7 @@ async def logout(interaction: nextcord.Interaction):
     userdata = data[str(interaction.user.id)]
 
     try:
-        user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with login 
+        user = await fileuploader.User.loginToken(userdata["accessToken"])  # Get user with token
 
     except fileuploader.exceptions.NotAuthorized:
         user = None
